@@ -4449,7 +4449,8 @@ DispatchTableCallInstr* DispatchTableCallInstr::FromCall(
 void DispatchTableCallInstr::EmitNativeCode(FlowGraphCompiler* compiler) {
   Array& arguments_descriptor = Array::ZoneHandle();
   if (selector()->requires_args_descriptor) {
-    ArgumentsInfo args_info(type_args_len(), ArgumentCount(), argument_names());
+    ArgumentsInfo args_info(type_args_len(), ArgumentCount(), ArgumentsSize(),
+                            argument_names());
     arguments_descriptor = args_info.ToArgumentsDescriptor();
   }
   const Register cid_reg = locs()->in(0).reg();
@@ -4460,6 +4461,19 @@ void DispatchTableCallInstr::EmitNativeCode(FlowGraphCompiler* compiler) {
   __ Drop(ArgumentCount());
 
   compiler->AddDispatchTableCallTarget(selector());
+}
+
+Representation StaticCallInstr::RequiredInputRepresentation(
+    intptr_t idx) const {
+  // The first input is the array of types
+  // for generic functions
+  if (function_.IsGeneric()) {
+    if (idx == 0) {
+      return kTagged;
+    }
+    idx--;
+  }
+  return FlowGraph::ParameterRepresentationAt(function(), idx);
 }
 
 const CallTargets& StaticCallInstr::Targets() {
@@ -4547,7 +4561,8 @@ LocationSummary* PolymorphicInstanceCallInstr::MakeLocationSummary(
 }
 
 void PolymorphicInstanceCallInstr::EmitNativeCode(FlowGraphCompiler* compiler) {
-  ArgumentsInfo args_info(type_args_len(), ArgumentCount(), argument_names());
+  ArgumentsInfo args_info(type_args_len(), ArgumentCount(), ArgumentsSize(),
+                          argument_names());
   UpdateReceiverSminess(compiler->zone());
   compiler->EmitPolymorphicInstanceCall(
       this, targets(), args_info, deopt_id(), token_pos(), locs(), complete(),
@@ -4701,8 +4716,8 @@ void StaticCallInstr::EmitNativeCode(FlowGraphCompiler* compiler) {
   } else {
     call_ic_data = &ICData::ZoneHandle(ic_data()->raw());
   }
-
-  ArgumentsInfo args_info(type_args_len(), ArgumentCount(), argument_names());
+  ArgumentsInfo args_info(type_args_len(), ArgumentCount(), ArgumentsSize(),
+                          argument_names());
   compiler->GenerateStaticCall(deopt_id(), token_pos(), function(), args_info,
                                locs(), *call_ic_data, rebind_rule_,
                                entry_kind());

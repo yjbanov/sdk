@@ -82,7 +82,14 @@ LocationSummary* PushArgumentInstr::MakeLocationSummary(Zone* zone,
   const intptr_t kNumTemps = 0;
   LocationSummary* locs = new (zone)
       LocationSummary(zone, kNumInputs, kNumTemps, LocationSummary::kNoCall);
-  locs->set_in(0, LocationAnyOrConstant(value()));
+  if (representation() == kUnboxedDouble) {
+    locs->set_in(0, Location::RequiresFpuRegister());
+  } else if (representation() == kUnboxedInt64) {
+    locs->set_in(0, Location::Pair(Location::RequiresRegister(),
+                                   Location::RequiresRegister()));
+  } else {
+    locs->set_in(0, LocationAnyOrConstant(value()));
+  }
   return locs;
 }
 
@@ -137,8 +144,12 @@ class ArgumentsPusher : public ValueObject {
       ASSERT(instr != nullptr);
       if (ParallelMoveInstr* parallel_move = instr->AsParallelMove()) {
         for (intptr_t i = 0, n = parallel_move->NumMoves(); i < n; ++i) {
-          if (parallel_move->MoveOperandsAt(i)->src().IsRegister()) {
-            busy |= (1 << parallel_move->MoveOperandsAt(i)->src().reg());
+          const auto src_loc = parallel_move->MoveOperandsAt(i)->src();
+          if (src_loc.IsRegister()) {
+            busy |= (1 << src_loc.reg());
+          } else if (src_loc.IsPairLocation()) {
+            busy |= (1 << src_loc.AsPairLocation()->At(0).reg());
+            busy |= (1 << src_loc.AsPairLocation()->At(1).reg());
           }
         }
       } else {
@@ -146,6 +157,10 @@ class ArgumentsPusher : public ValueObject {
         for (intptr_t i = 0, n = instr->locs()->input_count(); i < n; ++i) {
           if (instr->locs()->in(i).IsRegister()) {
             busy |= (1 << instr->locs()->in(i).reg());
+          } else if (instr->locs()->in(i).IsPairLocation()) {
+            const auto pair_location = instr->locs()->in(i).AsPairLocation();
+            busy |= (1 << pair_location->At(0).reg());
+            busy |= (1 << pair_location->At(1).reg());
           }
         }
         if (instr->ArgumentCount() > 0) {
@@ -199,6 +214,12 @@ void PushArgumentInstr::EmitNativeCode(FlowGraphCompiler* compiler) {
       const Location value = push_arg->locs()->in(0);
       if (value.IsRegister()) {
         pusher.PushRegister(compiler, value.reg());
+      } else if (value.IsPairLocation()) {
+        pusher.PushRegister(compiler, value.AsPairLocation()->At(0).reg());
+        pusher.PushRegister(compiler, value.AsPairLocation()->At(1).reg());
+      } else if (value.IsFpuRegister()) {
+        pusher.Flush(compiler);
+        __ vstmd(DB_W, SP, EvenDRegisterOf(value.fpu_reg()), 1);
       } else {
         const Register reg = pusher.FindFreeRegister(compiler, push_arg);
         ASSERT(reg != kNoRegister);
@@ -1464,8 +1485,10 @@ void StringInterpolateInstr::EmitNativeCode(FlowGraphCompiler* compiler) {
   __ Push(array);
   const int kTypeArgsLen = 0;
   const int kNumberOfArguments = 1;
+  constexpr int kSizeOfArguments = 1;
   const Array& kNoArgumentNames = Object::null_array();
-  ArgumentsInfo args_info(kTypeArgsLen, kNumberOfArguments, kNoArgumentNames);
+  ArgumentsInfo args_info(kTypeArgsLen, kNumberOfArguments, kSizeOfArguments,
+                          kNoArgumentNames);
   compiler->GenerateStaticCall(deopt_id(), token_pos(), CallFunction(),
                                args_info, locs(), ICData::Handle(),
                                ICData::kStatic);
@@ -5913,8 +5936,10 @@ void DoubleToIntegerInstr::EmitNativeCode(FlowGraphCompiler* compiler) {
   const Function& target = Function::ZoneHandle(ic_data.GetTargetAt(0));
   const int kTypeArgsLen = 0;
   const int kNumberOfArguments = 1;
+  constexpr int kSizeOfArguments = 1;
   const Array& kNoArgumentNames = Object::null_array();
-  ArgumentsInfo args_info(kTypeArgsLen, kNumberOfArguments, kNoArgumentNames);
+  ArgumentsInfo args_info(kTypeArgsLen, kNumberOfArguments, kSizeOfArguments,
+                          kNoArgumentNames);
   compiler->GenerateStaticCall(deopt_id(), instance_call()->token_pos(), target,
                                args_info, locs(), ICData::Handle(),
                                ICData::kStatic);

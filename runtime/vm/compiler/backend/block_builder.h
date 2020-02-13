@@ -54,9 +54,21 @@ class BlockBuilder : public ValueObject {
   }
 
   Definition* AddParameter(intptr_t index, bool with_frame) {
+    const auto& function = flow_graph_->function();
+    const intptr_t param_offset = FlowGraph::ParameterOffsetAt(function, index);
+    const auto representation =
+        FlowGraph::ParameterRepresentationAt(function, index);
+    return AddParameter(index, param_offset, with_frame, representation);
+  }
+
+  Definition* AddParameter(intptr_t index,
+                           intptr_t param_offset,
+                           bool with_frame,
+                           Representation representation) {
     auto normal_entry = flow_graph_->graph_entry()->normal_entry();
     return AddToInitialDefinitions(
-        new ParameterInstr(index, normal_entry, with_frame ? FPREG : SPREG));
+        new ParameterInstr(index, param_offset, normal_entry, representation,
+                           with_frame ? FPREG : SPREG));
   }
 
   TokenPosition TokenPos() { return flow_graph_->function().token_pos(); }

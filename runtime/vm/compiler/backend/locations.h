@@ -36,6 +36,21 @@ enum Representation {
   kNumRepresentations
 };
 
+#define FOR_EACH_REPRESENTATION_KIND(M)                                        \
+  M(NoRepresentation)                                                          \
+  M(Tagged)                                                                    \
+  M(Untagged)                                                                  \
+  M(UnboxedDouble)                                                             \
+  M(UnboxedFloat)                                                              \
+  M(UnboxedInt32)                                                              \
+  M(UnboxedUint32)                                                             \
+  M(UnboxedInt64)                                                              \
+  M(UnboxedFloat32x4)                                                          \
+  M(UnboxedInt32x4)                                                            \
+  M(UnboxedFloat64x2)                                                          \
+  M(PairOfTagged)                                                              \
+  M(NumRepresentations)
+
 // 'UnboxedFfiIntPtr' should be able to hold a pointer of the target word-size.
 // On a 32-bit platform, it's an unsigned 32-bit int because it should be
 // zero-extended to 64-bits, not sign-extended (pointers are inherently
@@ -79,6 +94,9 @@ class Location : public ValueObject {
   static const uword kLocationTagMask = 0x3;
 
  public:
+  static bool ParseRepresentation(const char* str, Representation* out);
+  static const char* RepresentationToCString(Representation repr);
+
   // Constant payload can overlap with kind field so Kind values
   // have to be chosen in a way that their last 2 bits are never
   // the same as kConstantTag or kPairLocationTag.

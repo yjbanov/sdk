@@ -1137,7 +1137,19 @@ ParameterInstr* FlowGraphDeserializer::DeserializeParameter(
     const InstrInfo& info) {
   ASSERT(current_block_ != nullptr);
   if (auto const index_sexp = CheckInteger(Retrieve(sexp, 1))) {
-    return new (zone()) ParameterInstr(index_sexp->value(), current_block_);
+    const auto param_offset_sexp =
+        CheckInteger(sexp->ExtraLookupValue("param_offset"));
+    ASSERT(param_offset_sexp != nullptr);
+    const auto representation_sexp =
+        CheckSymbol(sexp->ExtraLookupValue("representation"));
+    Representation representation;
+    if (!Location::ParseRepresentation(representation_sexp->value(),
+                                       &representation)) {
+      StoreError(representation_sexp, "unknown parameter representation");
+    }
+    return new (zone())
+        ParameterInstr(index_sexp->value(), param_offset_sexp->value(),
+                       current_block_, representation);
   }
   return nullptr;
 }

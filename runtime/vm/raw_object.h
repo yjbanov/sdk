@@ -1101,6 +1101,8 @@ class RawFunction : public RawObject {
 #undef DECLARE
 
 #endif  // !defined(DART_PRECOMPILED_RUNTIME)
+
+  NOT_IN_PRECOMPILED(UnboxedFieldBitmap unboxed_parameters_);
 };
 
 class RawClosureData : public RawObject {

@@ -43,6 +43,7 @@ FlowGraph::FlowGraph(const ParsedFunction& parsed_function,
       num_direct_parameters_(parsed_function.function().HasOptionalParameters()
                                  ? 0
                                  : parsed_function.function().NumParameters()),
+      direct_parameters_size_(0),
       graph_entry_(graph_entry),
       preorder_(),
       postorder_(),
@@ -57,12 +58,59 @@ FlowGraph::FlowGraph(const ParsedFunction& parsed_function,
       captured_parameters_(new (zone()) BitVector(zone(), variable_count())),
       inlining_id_(-1),
       should_print_(FlowGraphPrinter::ShouldPrint(parsed_function.function())) {
+  direct_parameters_size_ =
+      ParameterOffsetAt(function(), num_direct_parameters_);
   DiscoverBlocks();
 }
 
 void FlowGraph::EnsureSSATempIndex(Definition* defn, Definition* replacement) {
   if ((replacement->ssa_temp_index() == -1) && (defn->ssa_temp_index() != -1)) {
     AllocateSSAIndexes(replacement);
+  }
+}
+
+intptr_t FlowGraph::ParameterOffsetAt(const Function& function,
+                                      intptr_t index) {
+  ASSERT(index <= function.NumParameters());
+  intptr_t param_offset = 0;
+  for (intptr_t i = 0; i < index; i++) {
+    const auto& param_type = AbstractType::Handle(function.ParameterTypeAt(i));
+    if (function.is_unboxed_parameter_at(i) && param_type.IsIntType()) {
+      param_offset += compiler::target::kIntSpillFactor;
+    } else if (function.is_unboxed_parameter_at(i) &&
+               param_type.IsDoubleType()) {
+      param_offset += compiler::target::kDoubleSpillFactor;
+    } else {
+      ASSERT(!function.is_unboxed_parameter_at(i));
+      // Unboxed parameters always occupy one word
+      param_offset++;
+    }
+  }
+  if (index < function.NumParameters()) {
+    const auto& param_type =
+        AbstractType::Handle(function.ParameterTypeAt(index));
+    if (function.is_unboxed_parameter_at(index) && param_type.IsDoubleType() &&
+        compiler::target::kDoubleSpillFactor > 1) {
+      ASSERT(compiler::target::kDoubleSpillFactor == 2);
+      param_offset++;
+    }
+  }
+  return param_offset;
+}
+
+Representation FlowGraph::ParameterRepresentationAt(const Function& function,
+                                                    intptr_t index) {
+  ASSERT(index < function.NumParameters());
+  const auto& param_type =
+      AbstractType::Handle(function.ParameterTypeAt(index));
+  if (function.is_unboxed_parameter_at(index) && param_type.IsIntType()) {
+    return kUnboxedInt64;
+  } else if (function.is_unboxed_parameter_at(index) &&
+             param_type.IsDoubleType()) {
+    return kUnboxedDouble;
+  } else {
+    ASSERT(!function.is_unboxed_parameter_at(index));
+    return kTagged;
   }
 }
 
@@ -1038,9 +1086,33 @@ void FlowGraph::PopulateEnvironmentFromFunctionEntry(
 
   ASSERT(variable_count() == env->length());
   ASSERT(direct_parameter_count <= env->length());
+  intptr_t param_offset = 0;
   for (intptr_t i = 0; i < direct_parameter_count; i++) {
-    ParameterInstr* param = new (zone()) ParameterInstr(i, function_entry);
+    ASSERT(FLAG_precompiled_mode || !function().is_unboxed_parameter_at(i));
+
+    ParameterInstr* param;
+    const auto& param_type =
+        AbstractType::Handle(zone(), function().ParameterTypeAt(i));
+    bool is_pair = false;
+    if (function().is_unboxed_parameter_at(i) && (param_type.IsIntType())) {
+      param = new (zone())
+          ParameterInstr(i, param_offset, function_entry, kUnboxedInt64);
+      param_offset += compiler::target::kIntSpillFactor;
+      is_pair = true;
+    } else if (function().is_unboxed_parameter_at(i) &&
+               param_type.IsDoubleType()) {
+      constexpr intptr_t kCorrection = compiler::target::kDoubleSpillFactor - 1;
+      param = new (zone()) ParameterInstr(i, param_offset + kCorrection,
+                                          function_entry, kUnboxedDouble);
+      param_offset += compiler::target::kDoubleSpillFactor;
+    } else {
+      ASSERT(!function().is_unboxed_parameter_at(i));
+      param =
+          new (zone()) ParameterInstr(i, param_offset, function_entry, kTagged);
+      param_offset++;
+    }
     param->set_ssa_temp_index(alloc_ssa_temp_index());
+    if (is_pair) alloc_ssa_temp_index();
     AddToInitialDefinitions(function_entry, param);
     (*env)[i] = param;
   }
@@ -1101,7 +1173,8 @@ void FlowGraph::PopulateEnvironmentFromOsrEntry(
   const intptr_t parameter_count = osr_variable_count();
   ASSERT(parameter_count == env->length());
   for (intptr_t i = 0; i < parameter_count; i++) {
-    ParameterInstr* param = new (zone()) ParameterInstr(i, osr_entry);
+    ParameterInstr* param =
+        new (zone()) ParameterInstr(i, i, osr_entry, kTagged);
     param->set_ssa_temp_index(alloc_ssa_temp_index());
     AddToInitialDefinitions(osr_entry, param);
     (*env)[i] = param;
@@ -1133,7 +1206,7 @@ void FlowGraph::PopulateEnvironmentFromCatchEntry(
       param = new (Z) SpecialParameterInstr(SpecialParameterInstr::kStackTrace,
                                             DeoptId::kNone, catch_entry);
     } else {
-      param = new (Z) ParameterInstr(i, catch_entry);
+      param = new (Z) ParameterInstr(i, i, catch_entry, kTagged);
     }
 
     param->set_ssa_temp_index(alloc_ssa_temp_index());  // New SSA temp.
@@ -2582,8 +2655,8 @@ void FlowGraph::InsertPushArguments() {
           new (Z) PushArgumentsArray(zone(), arg_count);
       for (intptr_t i = 0; i < arg_count; ++i) {
         Value* arg = instruction->ArgumentValueAt(i);
-        PushArgumentInstr* push_arg =
-            new (Z) PushArgumentInstr(arg->CopyWithType(Z));
+        PushArgumentInstr* push_arg = new (Z) PushArgumentInstr(
+            arg->CopyWithType(Z), instruction->RequiredInputRepresentation(i));
         arguments->Add(push_arg);
         // Insert all PushArgument instructions immediately before call.
         // PushArgumentInstr::EmitNativeCode may generate more efficient

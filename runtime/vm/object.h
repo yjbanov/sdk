@@ -3056,6 +3056,30 @@ class Function : public Object {
 
   const char* ToQualifiedCString() const;
 
+  void reset_unboxed_parameters() const {
+#if !defined(DART_PRECOMPILED_RUNTIME)
+    StoreNonPointer(&raw_ptr()->unboxed_parameters_, UnboxedFieldBitmap());
+#endif  //  !defined(DART_PRECOMPILED_RUNTIME)
+  }
+
+  void set_unboxed_parameter_at(intptr_t index) const {
+#if !defined(DART_PRECOMPILED_RUNTIME)
+    ASSERT(index < UnboxedFieldBitmap::Length());
+    const_cast<UnboxedFieldBitmap*>(&raw_ptr()->unboxed_parameters_)
+        ->Set(index);
+#else
+    UNREACHABLE();
+#endif  //  !defined(DART_PRECOMPILED_RUNTIME)
+  }
+
+  bool is_unboxed_parameter_at(intptr_t index) const {
+#if !defined(DART_PRECOMPILED_RUNTIME)
+    return raw_ptr()->unboxed_parameters_.Get(index);
+#else
+    return false;
+#endif  //  !defined(DART_PRECOMPILED_RUNTIME)
+  }
+
   // Returns true if the type of this function is a subtype of the type of
   // the other function.
   bool IsSubtypeOf(NNBDMode mode,

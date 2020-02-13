@@ -297,6 +297,9 @@ inline intptr_t RoundedAllocationSize(intptr_t size) {
 // Information about frame_layout that compiler should be targeting.
 extern FrameLayout frame_layout;
 
+constexpr intptr_t kIntSpillFactor = sizeof(int64_t) / kWordSize;
+constexpr intptr_t kDoubleSpillFactor = sizeof(double_t) / kWordSize;
+
 // Returns the FP-relative index where [variable] can be found (assumes
 // [variable] is not captured), in bytes.
 inline int FrameOffsetInBytesForVariable(const LocalVariable* variable) {

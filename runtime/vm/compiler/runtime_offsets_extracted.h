@@ -407,7 +407,7 @@ static constexpr dart::compiler::target::word FfiTrampolineData_InstanceSize =
 static constexpr dart::compiler::target::word Field_InstanceSize = 64;
 static constexpr dart::compiler::target::word Float32x4_InstanceSize = 24;
 static constexpr dart::compiler::target::word Float64x2_InstanceSize = 24;
-static constexpr dart::compiler::target::word Function_InstanceSize = 88;
+static constexpr dart::compiler::target::word Function_InstanceSize = 96;
 static constexpr dart::compiler::target::word GrowableObjectArray_InstanceSize =
     16;
 static constexpr dart::compiler::target::word ICData_InstanceSize = 32;
@@ -870,7 +870,7 @@ static constexpr dart::compiler::target::word FfiTrampolineData_InstanceSize =
 static constexpr dart::compiler::target::word Field_InstanceSize = 112;
 static constexpr dart::compiler::target::word Float32x4_InstanceSize = 24;
 static constexpr dart::compiler::target::word Float64x2_InstanceSize = 24;
-static constexpr dart::compiler::target::word Function_InstanceSize = 144;
+static constexpr dart::compiler::target::word Function_InstanceSize = 152;
 static constexpr dart::compiler::target::word GrowableObjectArray_InstanceSize =
     32;
 static constexpr dart::compiler::target::word ICData_InstanceSize = 56;
@@ -1326,7 +1326,7 @@ static constexpr dart::compiler::target::word FfiTrampolineData_InstanceSize =
 static constexpr dart::compiler::target::word Field_InstanceSize = 64;
 static constexpr dart::compiler::target::word Float32x4_InstanceSize = 24;
 static constexpr dart::compiler::target::word Float64x2_InstanceSize = 24;
-static constexpr dart::compiler::target::word Function_InstanceSize = 88;
+static constexpr dart::compiler::target::word Function_InstanceSize = 96;
 static constexpr dart::compiler::target::word GrowableObjectArray_InstanceSize =
     16;
 static constexpr dart::compiler::target::word ICData_InstanceSize = 32;
@@ -1790,7 +1790,7 @@ static constexpr dart::compiler::target::word FfiTrampolineData_InstanceSize =
 static constexpr dart::compiler::target::word Field_InstanceSize = 112;
 static constexpr dart::compiler::target::word Float32x4_InstanceSize = 24;
 static constexpr dart::compiler::target::word Float64x2_InstanceSize = 24;
-static constexpr dart::compiler::target::word Function_InstanceSize = 144;
+static constexpr dart::compiler::target::word Function_InstanceSize = 152;
 static constexpr dart::compiler::target::word GrowableObjectArray_InstanceSize =
     32;
 static constexpr dart::compiler::target::word ICData_InstanceSize = 56;
@@ -2246,7 +2246,7 @@ static constexpr dart::compiler::target::word FfiTrampolineData_InstanceSize =
 static constexpr dart::compiler::target::word Field_InstanceSize = 64;
 static constexpr dart::compiler::target::word Float32x4_InstanceSize = 24;
 static constexpr dart::compiler::target::word Float64x2_InstanceSize = 24;
-static constexpr dart::compiler::target::word Function_InstanceSize = 88;
+static constexpr dart::compiler::target::word Function_InstanceSize = 96;
 static constexpr dart::compiler::target::word GrowableObjectArray_InstanceSize =
     16;
 static constexpr dart::compiler::target::word ICData_InstanceSize = 32;
@@ -2703,7 +2703,7 @@ static constexpr dart::compiler::target::word FfiTrampolineData_InstanceSize =
 static constexpr dart::compiler::target::word Field_InstanceSize = 112;
 static constexpr dart::compiler::target::word Float32x4_InstanceSize = 24;
 static constexpr dart::compiler::target::word Float64x2_InstanceSize = 24;
-static constexpr dart::compiler::target::word Function_InstanceSize = 144;
+static constexpr dart::compiler::target::word Function_InstanceSize = 152;
 static constexpr dart::compiler::target::word GrowableObjectArray_InstanceSize =
     32;
 static constexpr dart::compiler::target::word ICData_InstanceSize = 56;
@@ -3153,7 +3153,7 @@ static constexpr dart::compiler::target::word FfiTrampolineData_InstanceSize =
 static constexpr dart::compiler::target::word Field_InstanceSize = 64;
 static constexpr dart::compiler::target::word Float32x4_InstanceSize = 24;
 static constexpr dart::compiler::target::word Float64x2_InstanceSize = 24;
-static constexpr dart::compiler::target::word Function_InstanceSize = 88;
+static constexpr dart::compiler::target::word Function_InstanceSize = 96;
 static constexpr dart::compiler::target::word GrowableObjectArray_InstanceSize =
     16;
 static constexpr dart::compiler::target::word ICData_InstanceSize = 32;
@@ -3611,7 +3611,7 @@ static constexpr dart::compiler::target::word FfiTrampolineData_InstanceSize =
 static constexpr dart::compiler::target::word Field_InstanceSize = 112;
 static constexpr dart::compiler::target::word Float32x4_InstanceSize = 24;
 static constexpr dart::compiler::target::word Float64x2_InstanceSize = 24;
-static constexpr dart::compiler::target::word Function_InstanceSize = 144;
+static constexpr dart::compiler::target::word Function_InstanceSize = 152;
 static constexpr dart::compiler::target::word GrowableObjectArray_InstanceSize =
     32;
 static constexpr dart::compiler::target::word ICData_InstanceSize = 56;

@@ -594,6 +594,8 @@ void FlowGraphCompiler::VisitBlocks() {
     for (ForwardInstructionIterator it(entry); !it.Done(); it.Advance()) {
       Instruction* instr = it.Current();
       StatsBegin(instr);
+      set_current_instruction(instr);
+
       // Compose intervals.
       code_source_map_builder_->StartInliningInterval(assembler()->CodeSize(),
                                                       instr->inlining_id());
@@ -852,13 +854,45 @@ void FlowGraphCompiler::RecordSafepoint(LocationSummary* locs,
     // registers to the bitmap. This is why the second call to RecordSafepoint
     // with the same instruction (and same location summary) sees a bitmap that
     // is larger that StackSize(). It will never be larger than StackSize() +
-    // live_registers_size.
+    // unboxed_arg_bits_count + live_registers_size.
     // The first safepoint will grow the bitmap to be the size of
     // spill_area_size but the second safepoint will truncate the bitmap and
-    // append the live registers to it again. The bitmap produced by both calls
-    // will be the same.
-    ASSERT(bitmap->Length() <= (spill_area_size + saved_registers_size));
+    // append the bits for arguments and live registers to it again.
+    const intptr_t bitmap_previous_length = bitmap->Length();
     bitmap->SetLength(spill_area_size);
+
+    intptr_t unboxed_arg_bits_count = 0;
+
+    auto instr = current_instruction();
+    const intptr_t args_count = instr->ArgumentCount();
+    for (intptr_t i = 0; i < args_count; i++) {
+      auto push_arg =
+          instr->ArgumentValueAt(i)->instruction()->AsPushArgument();
+      switch (push_arg->representation()) {
+        case kUnboxedInt64:
+          bitmap->SetRange(
+              bitmap->Length(),
+              bitmap->Length() + compiler::target::kIntSpillFactor - 1, false);
+          unboxed_arg_bits_count += compiler::target::kIntSpillFactor;
+          break;
+        case kUnboxedDouble:
+          bitmap->SetRange(
+              bitmap->Length(),
+              bitmap->Length() + compiler::target::kDoubleSpillFactor - 1,
+              false);
+          unboxed_arg_bits_count += compiler::target::kDoubleSpillFactor;
+          break;
+        case kTagged:
+          bitmap->Set(bitmap->Length(), true);
+          unboxed_arg_bits_count++;
+          break;
+        default:
+          UNREACHABLE();
+          break;
+      }
+    }
+    ASSERT(bitmap_previous_length <=
+           spill_area_size + unboxed_arg_bits_count + saved_registers_size);
 
     ASSERT(slow_path_argument_count == 0 || !using_shared_stub);
 
@@ -1382,7 +1416,7 @@ void FlowGraphCompiler::GenerateStaticCall(intptr_t deopt_id,
   // optimized static calls.
   if (is_optimizing() && (!ForcedOptimization() || FLAG_precompiled_mode)) {
     EmitOptimizedStaticCall(function, arguments_descriptor,
-                            args_info.count_with_type_args, deopt_id, token_pos,
+                            args_info.size_with_type_args, deopt_id, token_pos,
                             locs, entry_kind);
   } else {
     ICData& call_ic_data = ICData::ZoneHandle(zone(), ic_data.raw());
@@ -1395,7 +1429,7 @@ void FlowGraphCompiler::GenerateStaticCall(intptr_t deopt_id,
       call_ic_data = call_ic_data.Original();
     }
     AddCurrentDescriptor(RawPcDescriptors::kRewind, deopt_id, token_pos);
-    EmitUnoptimizedStaticCall(args_info.count_with_type_args, deopt_id,
+    EmitUnoptimizedStaticCall(args_info.size_with_type_args, deopt_id,
                               token_pos, locs, call_ic_data, entry_kind);
   }
 }

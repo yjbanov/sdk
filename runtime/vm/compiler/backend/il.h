@@ -2450,13 +2450,20 @@ class PhiInstr : public Definition {
 class ParameterInstr : public Definition {
  public:
   ParameterInstr(intptr_t index,
+                 intptr_t param_offset,
                  BlockEntryInstr* block,
+                 Representation representation,
                  Register base_reg = FPREG)
-      : index_(index), base_reg_(base_reg), block_(block) {}
+      : index_(index),
+        param_offset_(param_offset),
+        base_reg_(base_reg),
+        representation_(representation),
+        block_(block) {}
 
   DECLARE_INSTRUCTION(Parameter)
 
   intptr_t index() const { return index_; }
+  intptr_t param_offset() const { return param_offset_; }
   Register base_reg() const { return base_reg_; }
 
   // Get the block entry for that instruction.
@@ -2467,6 +2474,13 @@ class ParameterInstr : public Definition {
   Value* InputAt(intptr_t i) const {
     UNREACHABLE();
     return NULL;
+  }
+
+  virtual Representation representation() const { return representation_; }
+
+  virtual Representation RequiredInputRepresentation(intptr_t index) const {
+    ASSERT(index == 0);
+    return representation();
   }
 
   virtual bool ComputeCanDeoptimize() const { return false; }
@@ -2489,7 +2503,9 @@ class ParameterInstr : public Definition {
   virtual void RawSetInputAt(intptr_t i, Value* value) { UNREACHABLE(); }
 
   const intptr_t index_;
+  const intptr_t param_offset_;
   const Register base_reg_;
+  const Representation representation_;
   BlockEntryInstr* block_;
 
   DISALLOW_COPY_AND_ASSIGN(ParameterInstr);
@@ -2695,7 +2711,10 @@ class TailCallInstr : public Instruction {
 
 class PushArgumentInstr : public TemplateDefinition<1, NoThrow> {
  public:
-  explicit PushArgumentInstr(Value* value) { SetInputAt(0, value); }
+  explicit PushArgumentInstr(Value* value, Representation representation)
+      : representation_(representation) {
+    SetInputAt(0, value);
+  }
 
   DECLARE_INSTRUCTION(PushArgument)
 
@@ -2711,9 +2730,18 @@ class PushArgumentInstr : public TemplateDefinition<1, NoThrow> {
     return TokenPosition::kPushArgument;
   }
 
+  virtual Representation representation() const { return representation_; }
+
+  virtual Representation RequiredInputRepresentation(intptr_t index) const {
+    ASSERT(index == 0);
+    return representation();
+  }
+
   PRINT_OPERANDS_TO_SUPPORT
 
  private:
+  const Representation representation_;
+
   DISALLOW_COPY_AND_ASSIGN(PushArgumentInstr);
 };
 
@@ -3576,9 +3604,11 @@ class SpecialParameterInstr : public TemplateDefinition<0, NoThrow> {
 struct ArgumentsInfo {
   ArgumentsInfo(intptr_t type_args_len,
                 intptr_t count_with_type_args,
+                intptr_t size_with_type_args,
                 const Array& argument_names)
       : type_args_len(type_args_len),
         count_with_type_args(count_with_type_args),
+        size_with_type_args(size_with_type_args),
         count_without_type_args(count_with_type_args -
                                 (type_args_len > 0 ? 1 : 0)),
         argument_names(argument_names) {}
@@ -3590,6 +3620,7 @@ struct ArgumentsInfo {
 
   const intptr_t type_args_len;
   const intptr_t count_with_type_args;
+  const intptr_t size_with_type_args;
   const intptr_t count_without_type_args;
   const Array& argument_names;
 };
@@ -3634,12 +3665,27 @@ class TemplateDartCall : public Definition {
   intptr_t ArgumentCountWithoutTypeArgs() const {
     return ArgumentCount() - FirstArgIndex();
   }
+  intptr_t ArgumentSizeWithoutTypeArgs() const {
+    return ArgumentsSize() - FirstArgIndex();
+  }
   // ArgumentCount() includes the type argument vector if any.
   // Caution: Must override Instruction::ArgumentCount().
   virtual intptr_t ArgumentCount() const {
     return push_arguments_ != nullptr ? push_arguments_->length()
                                       : inputs_->length() - kExtraInputs;
   }
+  virtual intptr_t ArgumentsSize() const {
+    const auto push_arg_repr = [](PushArgumentInstr* instr) {
+      return instr->representation();
+    };
+    const auto input_repr = [](Value* instr) {
+      return instr->instruction()->representation();
+    };
+    return push_arguments_ != nullptr
+               ? CalculateArgumentsSize(push_arguments_, push_arg_repr)
+               : CalculateArgumentsSize(inputs_, input_repr);
+  }
+
   virtual void SetPushArguments(PushArgumentsArray* push_arguments) {
     ASSERT(push_arguments_ == nullptr);
     push_arguments_ = push_arguments;
@@ -3667,12 +3713,34 @@ class TemplateDartCall : public Definition {
   virtual TokenPosition token_pos() const { return token_pos_; }
   RawArray* GetArgumentsDescriptor() const {
     return ArgumentsDescriptor::New(
-        type_args_len(), ArgumentCountWithoutTypeArgs(), argument_names());
+        type_args_len(), ArgumentSizeWithoutTypeArgs(), argument_names());
   }
 
   ADD_EXTRA_INFO_TO_S_EXPRESSION_SUPPORT
 
  private:
+  template <typename T, typename Func>
+  intptr_t CalculateArgumentsSize(const ZoneGrowableArray<T>* args,
+                                  const Func& representation_getter) const {
+    intptr_t args_size = 0;
+    for (const auto& arg : *args) {
+      switch (representation_getter(arg)) {
+        case kUnboxedInt64:
+          args_size += compiler::target::kIntSpillFactor;
+          break;
+        case kUnboxedDouble:
+          args_size += compiler::target::kDoubleSpillFactor;
+          break;
+        case kTagged:
+          args_size++;
+          break;
+        default:
+          UNREACHABLE();
+      }
+    }
+    return args_size;
+  }
+
   virtual void RawSetInputAt(intptr_t i, Value* value) {
     (*inputs_)[i] = value;
   }
@@ -4492,6 +4560,21 @@ class StaticCallInstr : public TemplateDartCall<0> {
   void set_entry_kind(Code::EntryKind value) { entry_kind_ = value; }
 
   bool IsRecognizedFactory() const { return is_known_list_constructor(); }
+
+  virtual SpeculativeMode SpeculativeModeOfInput(intptr_t idx) const {
+    if (function_.IsGeneric()) {
+      if (idx == 0) {
+        return kGuardInputs;
+      }
+      idx--;
+    }
+    return function_.is_unboxed_parameter_at(idx) ? kNotSpeculative
+                                                  : kGuardInputs;
+  }
+
+  virtual Representation RequiredInputRepresentation(intptr_t idx) const;
+
+  virtual intptr_t DeoptimizationTarget() const { return DeoptId::kNone; }
 
   virtual AliasIdentity Identity() const { return identity_; }
   virtual void SetIdentity(AliasIdentity identity) { identity_ = identity; }

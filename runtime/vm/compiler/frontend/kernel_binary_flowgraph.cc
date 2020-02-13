@@ -5064,7 +5064,7 @@ Fragment StreamingFlowGraphBuilder::BuildFunctionNode(
       type_translator_.SetupFunctionParameters(Class::Handle(Z), function,
                                                false,  // is_method
                                                true,   // is_closure
-                                               &function_node_helper);
+                                               &function_node_helper, 0);
       function_node_helper.ReadUntilExcluding(FunctionNodeHelper::kEnd);
 
       // Finalize function type.

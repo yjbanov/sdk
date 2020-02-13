@@ -6,6 +6,7 @@
 
 #include "vm/class_finalizer.h"
 #include "vm/compiler/aot/precompiler.h"
+#include "vm/compiler/backend/flow_graph_compiler.h"
 #include "vm/compiler/frontend/constant_reader.h"
 #include "vm/log.h"
 #include "vm/object_store.h"
@@ -2747,12 +2748,15 @@ ActiveTypeParametersScope::ActiveTypeParametersScope(
 }
 
 TypeTranslator::TypeTranslator(KernelReaderHelper* helper,
+                               ConstantReader* constant_reader,
                                ActiveClass* active_class,
                                bool finalize)
     : helper_(helper),
+      constant_reader_(constant_reader),
       translation_helper_(helper->translation_helper_),
       active_class_(active_class),
       type_parameter_scope_(NULL),
+      inferred_type_metadata_helper_(helper_, constant_reader_),
       zone_(translation_helper_.zone()),
       result_(AbstractType::Handle(translation_helper_.zone())),
       finalize_(finalize) {}
@@ -3233,12 +3237,44 @@ const Type& TypeTranslator::ReceiverType(const Class& klass) {
   return type;
 }
 
+void TypeTranslator::ReadInferredType(const Function& function,
+                                      intptr_t kernel_offset,
+                                      intptr_t param_index) {
+#if !defined(DART_PRECOMPILED_RUNTIME)
+  if (strstr(function.ToFullyQualifiedCString(), "asExternalTypedData") != nullptr && !function.is_native()) {
+    UNREACHABLE();
+  }
+
+  const bool can_unbox_parameters =
+      !function.HasOptionalParameters() &&
+      !function.IsImplicitStaticClosureFunction() && !function.is_native() &&
+      (function.IsStaticFunction() || function.IsGenerativeConstructor());
+
+  if (FLAG_precompiled_mode && can_unbox_parameters) {
+    const InferredTypeMetadata type =
+        inferred_type_metadata_helper_.GetInferredType(kernel_offset);
+
+    if (param_index < UnboxedFieldBitmap::Length() && !type.IsNullable()) {
+      const auto& param_type =
+          AbstractType::Handle(Z, function.ParameterTypeAt(param_index));
+      if ((param_type.IsIntType() &&
+           FlowGraphCompiler::SupportsUnboxedInt64()) ||
+          (param_type.IsDoubleType() &&
+           FlowGraphCompiler::SupportsUnboxedDoubles())) {
+        function.set_unboxed_parameter_at(param_index);
+      }
+    }
+  }
+#endif  //  !defined(DART_PRECOMPILED_RUNTIME)
+}
+
 void TypeTranslator::SetupFunctionParameters(
     const Class& klass,
     const Function& function,
     bool is_method,
     bool is_closure,
-    FunctionNodeHelper* function_node_helper) {
+    FunctionNodeHelper* function_node_helper,
+    intptr_t correction) {
   ASSERT(!(is_method && is_closure));
   bool is_factory = function.IsFactory();
   intptr_t extra_parameters = (is_method || is_closure || is_factory) ? 1 : 0;
@@ -3295,6 +3331,8 @@ void TypeTranslator::SetupFunctionParameters(
 
   const Library& lib = Library::Handle(Z, active_class_->klass->library());
   for (intptr_t i = 0; i < positional_parameter_count; ++i, ++pos) {
+    intptr_t param_offset = helper_->ReaderOffset() - correction;
+
     // Read ith variable declaration.
     VariableDeclarationHelper helper(helper_);
     helper.ReadUntilExcluding(VariableDeclarationHelper::kType);
@@ -3306,12 +3344,15 @@ void TypeTranslator::SetupFunctionParameters(
 
     function.SetParameterTypeAt(pos, type);
     function.SetParameterNameAt(pos, H.DartIdentifier(lib, helper.name_index_));
+    ReadInferredType(function, param_offset, i);
   }
 
   intptr_t named_parameter_count_check =
       helper_->ReadListLength();  // read list length.
   ASSERT(named_parameter_count_check == named_parameter_count);
   for (intptr_t i = 0; i < named_parameter_count; ++i, ++pos) {
+    intptr_t param_offset = helper_->ReaderOffset() - correction;
+
     // Read ith variable declaration.
     VariableDeclarationHelper helper(helper_);
     helper.ReadUntilExcluding(VariableDeclarationHelper::kType);
@@ -3323,6 +3364,7 @@ void TypeTranslator::SetupFunctionParameters(
 
     function.SetParameterTypeAt(pos, type);
     function.SetParameterNameAt(pos, H.DartIdentifier(lib, helper.name_index_));
+    ReadInferredType(function, param_offset, positional_parameter_count + i);
   }
 
   function_node_helper->SetJustRead(FunctionNodeHelper::kNamedParameters);

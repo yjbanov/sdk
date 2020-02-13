@@ -617,11 +617,18 @@ void FlowGraphAllocator::BuildLiveRanges() {
       auto& initial_definitions = *entry->initial_definitions();
       for (intptr_t i = 0; i < initial_definitions.length(); i++) {
         Definition* defn = initial_definitions[i];
-        ASSERT(!defn->HasPairRepresentation());
         LiveRange* range = GetLiveRange(defn->ssa_temp_index());
         range->AddUseInterval(entry->start_pos(), entry->start_pos() + 2);
         range->DefineAt(entry->start_pos());
         ProcessInitialDefinition(defn, range, entry);
+        if (defn->HasPairRepresentation()) {
+          LiveRange* range =
+              GetLiveRange(ToSecondPairVreg(defn->ssa_temp_index()));
+          range->AddUseInterval(entry->start_pos(), entry->start_pos() + 2);
+          range->DefineAt(entry->start_pos());
+          ProcessInitialDefinition(defn, range, entry,
+                                   /*second_slot_for_definition=*/true);
+        }
       }
     }
   }
@@ -647,9 +654,11 @@ void FlowGraphAllocator::SplitInitialDefinitionAt(LiveRange* range,
   }
 }
 
-void FlowGraphAllocator::ProcessInitialDefinition(Definition* defn,
-                                                  LiveRange* range,
-                                                  BlockEntryInstr* block) {
+void FlowGraphAllocator::ProcessInitialDefinition(
+    Definition* defn,
+    LiveRange* range,
+    BlockEntryInstr* block,
+    bool second_slot_for_definition) {
   // Save the range end because it may change below.
   const intptr_t range_end = range->End();
 
@@ -687,17 +696,21 @@ void FlowGraphAllocator::ProcessInitialDefinition(Definition* defn,
   }
 
   if (defn->IsParameter()) {
+    const intptr_t parameters_size = block->IsFunctionEntry()
+                                         ? flow_graph_.direct_parameters_size()
+                                         : flow_graph_.num_direct_parameters();
     ParameterInstr* param = defn->AsParameter();
-    intptr_t slot_index = param->index();
+    intptr_t slot_index =
+        param->param_offset() + (second_slot_for_definition ? 1 : 0);
     ASSERT(slot_index >= 0);
     if (param->base_reg() == FPREG) {
       // Slot index for the rightmost fixed parameter is -1.
-      slot_index -= flow_graph_.num_direct_parameters();
+      slot_index -= parameters_size;
     } else {
       // Slot index for a "frameless" parameter is reversed.
       ASSERT(param->base_reg() == SPREG);
-      ASSERT(slot_index < flow_graph_.num_direct_parameters());
-      slot_index = flow_graph_.num_direct_parameters() - 1 - slot_index;
+      ASSERT(slot_index < parameters_size);
+      slot_index = parameters_size - 1 - slot_index;
     }
 
     if (param->base_reg() == FPREG) {
@@ -707,9 +720,23 @@ void FlowGraphAllocator::ProcessInitialDefinition(Definition* defn,
       ASSERT(param->base_reg() == SPREG);
       slot_index += compiler::target::frame_layout.last_param_from_entry_sp;
     }
-    range->set_assigned_location(
-        Location::StackSlot(slot_index, param->base_reg()));
-    range->set_spill_slot(Location::StackSlot(slot_index, param->base_reg()));
+
+    // !!!! Need to create the right type of the spill slot
+    if (param->representation() == kUnboxedInt64) {
+      range->set_assigned_location(
+          Location::StackSlot(slot_index, param->base_reg()));
+      range->set_spill_slot(Location::StackSlot(slot_index, param->base_reg()));
+    } else if (param->representation() == kUnboxedDouble) {
+      range->set_assigned_location(
+          Location::DoubleStackSlot(slot_index, param->base_reg()));
+      range->set_spill_slot(
+          Location::DoubleStackSlot(slot_index, param->base_reg()));
+    } else {
+      ASSERT(param->representation() == kTagged);
+      range->set_assigned_location(
+          Location::StackSlot(slot_index, param->base_reg()));
+      range->set_spill_slot(Location::StackSlot(slot_index, param->base_reg()));
+    }
   } else if (defn->IsSpecialParameter()) {
     SpecialParameterInstr* param = defn->AsSpecialParameter();
     ASSERT(param->kind() == SpecialParameterInstr::kArgDescriptor);
@@ -738,8 +765,7 @@ void FlowGraphAllocator::ProcessInitialDefinition(Definition* defn,
       range->finger()->FirstRegisterBeneficialUse(block->start_pos());
   if (use != NULL) {
     LiveRange* tail = SplitBetween(range, block->start_pos(), use->pos());
-    // Parameters and constants are tagged, so allocated to CPU registers.
-    CompleteRange(tail, Location::kRegister);
+    CompleteRange(tail, defn->RegisterKindForResult());
   }
   ConvertAllUses(range);
   Location spill_slot = range->spill_slot();
@@ -750,7 +776,7 @@ void FlowGraphAllocator::ProcessInitialDefinition(Definition* defn,
     // the same space which is used for spill slots. Update spill slot state to
     // reflect that and prevent register allocator from reusing this space as a
     // spill slot.
-    spill_slots_.Add(range_end);
+    spill_slots_.Add(range_end);  // !!!! Change here
     quad_spill_slots_.Add(false);
     untagged_spill_slots_.Add(false);
     // Note, all incoming parameters are assumed to be tagged.
@@ -1902,6 +1928,7 @@ void FlowGraphAllocator::SpillAfter(LiveRange* range, intptr_t from) {
   Spill(tail);
 }
 
+// !!!!! Take a look here
 void FlowGraphAllocator::AllocateSpillSlotFor(LiveRange* range) {
   ASSERT(range->spill_slot().IsInvalid());
 
@@ -2854,9 +2881,12 @@ void FlowGraphAllocator::CollectRepresentations() {
       initial_definitions = entry->initial_definitions();
       for (intptr_t i = 0; i < initial_definitions->length(); ++i) {
         Definition* def = (*initial_definitions)[i];
-        ASSERT(!def->HasPairRepresentation());
         value_representations_[def->ssa_temp_index()] =
             RepresentationForRange(def->representation());
+        if (def->HasPairRepresentation()) {
+          value_representations_[ToSecondPairVreg(def->ssa_temp_index())] =
+              RepresentationForRange(def->representation());
+        }
       }
     } else if (auto join = block->AsJoinEntry()) {
       for (PhiIterator it(join); !it.Done(); it.Advance()) {

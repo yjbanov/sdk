@@ -112,6 +112,9 @@ class FlowGraph : public ZoneAllocated {
   // the arguments descriptor.
   intptr_t num_direct_parameters() const { return num_direct_parameters_; }
 
+  // The number of words in the stack used by the direct parameters.
+  intptr_t direct_parameters_size() const { return direct_parameters_size_; }
+
   // The number of variables (or boxes) which code can load from / store to.
   // The SSA renaming will insert phi's for them (and only them - i.e. there
   // will be no phi insertion for [LocalVariable]s pointing to the expression
@@ -126,6 +129,11 @@ class FlowGraph : public ZoneAllocated {
     ASSERT(IsCompiledForOsr());
     return variable_count() + graph_entry()->osr_entry()->stack_depth();
   }
+
+  static intptr_t ParameterOffsetAt(const Function& function, intptr_t index);
+
+  static Representation ParameterRepresentationAt(const Function& function,
+                                                  intptr_t index);
 
   // The number of variables (or boxes) inside the functions frame - meaning
   // below the frame pointer.  This does not include the expression stack.
@@ -516,6 +524,7 @@ class FlowGraph : public ZoneAllocated {
   // Flow graph fields.
   const ParsedFunction& parsed_function_;
   intptr_t num_direct_parameters_;
+  intptr_t direct_parameters_size_;
   GraphEntryInstr* graph_entry_;
   GrowableArray<BlockEntryInstr*> preorder_;
   GrowableArray<BlockEntryInstr*> postorder_;

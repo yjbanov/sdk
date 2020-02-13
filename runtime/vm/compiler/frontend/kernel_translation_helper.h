@@ -930,7 +930,9 @@ struct InferredTypeMetadata {
     return (cid == kDynamicCid) && (flags == kFlagNullable);
   }
   bool IsNullable() const { return (flags & kFlagNullable) != 0; }
-  bool IsInt() const { return (flags & kFlagInt) != 0; }
+  bool IsInt() const {
+    return (flags & kFlagInt) != 0 || cid == kMintCid || cid == kSmiCid;
+  }
   bool IsSkipCheck() const { return (flags & kFlagSkipCheck) != 0; }
   bool IsConstant() const { return (flags & kFlagConstant) != 0; }
   bool ReceiverNotInt() const { return (flags & kFlagReceiverNotInt) != 0; }
@@ -1317,6 +1319,7 @@ class ActiveTypeParametersScope {
 class TypeTranslator {
  public:
   TypeTranslator(KernelReaderHelper* helper,
+                 ConstantReader* constant_reader,
                  ActiveClass* active_class,
                  bool finalize = false);
 
@@ -1340,9 +1343,13 @@ class TypeTranslator {
                                const Function& function,
                                bool is_method,
                                bool is_closure,
-                               FunctionNodeHelper* function_node_helper);
+                               FunctionNodeHelper* function_node_helper,
+                               intptr_t correction);
 
  private:
+  void ReadInferredType(const Function& field,
+                        intptr_t kernel_offset,
+                        intptr_t param_index);
   void BuildTypeInternal();
   void BuildInterfaceType(bool simple);
   void BuildFunctionType(bool simple);
@@ -1375,9 +1382,11 @@ class TypeTranslator {
   };
 
   KernelReaderHelper* helper_;
+  ConstantReader* constant_reader_;
   TranslationHelper& translation_helper_;
   ActiveClass* const active_class_;
   TypeParameterScope* type_parameter_scope_;
+  InferredTypeMetadataHelper inferred_type_metadata_helper_;
   Zone* zone_;
   AbstractType& result_;
   bool finalize_;
