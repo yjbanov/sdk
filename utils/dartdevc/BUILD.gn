@@ -222,7 +222,7 @@ group("dartdevc_test_kernel_pkg") {
       ":matcher_js",
       ":path_js",
       ":stack_trace_js",
-      ":unittest_js",
+      #":unittest_js",
     ]
   }
 }
